@@ -1,0 +1,24 @@
+services:
+  o11y-code-remediation:
+    build: .
+    container_name: o11y-code-remediation
+    ports:
+      - "4318:4318"
+    environment:
+      - PORT=4318
+      - HOST=0.0.0.0
+      - ENVIRONMENT=${ENVIRONMENT:-}
+      - LLM_PROVIDER=${LLM_PROVIDER:-bedrock}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-west-2}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-ollama}
+      - OPENAI_MODEL=${OPENAI_MODEL:-}
+    volumes:
+      # Needed by receiver/source_reader.py to read source files from other
+      # running containers for the /api/source and /api/fix endpoints.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped

@@ -1,0 +1,33 @@
+# Add this exporter + pipeline wiring to your existing OTel Collector config
+# to fan out traces and logs to o11y-code-remediation alongside your normal
+# Splunk export path. This service only needs traces (for exception events)
+# and logs (for AlwaysOn/snapshot profiling records tagged
+# com.splunk.sourcetype == "otel.profiling") — metrics are not consumed.
+#
+# encoding: json is required — the receiver only supports JSON, not protobuf.
+# compression: none is required — the Flask receiver doesn't auto-decompress gzip.
+
+exporters:
+  otlphttp/code_remediation:
+    endpoint: "http://o11y-code-remediation:4318"   # or wherever this service is reachable
+    encoding: json
+    compression: none
+    sending_queue:
+      enabled: true
+      num_consumers: 2
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 5s
+      max_interval: 30s
+      max_elapsed_time: 120s
+
+service:
+  pipelines:
+    traces:
+      # ...your existing receivers/processors...
+      exporters: [otlphttp/code_remediation]   # add alongside your existing exporters
+
+    logs:
+      # ...your existing receivers/processors...
+      exporters: [otlphttp/code_remediation]   # add alongside your existing exporters

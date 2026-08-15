@@ -764,7 +764,11 @@ main { padding: 20px; max-width: 1400px; margin: 0 auto; }
         <div class="fg-mode-tabs">
           <button class="fg-mode-btn active" id="fg-btn-cpu"    onclick="setFlamegraphMode('cpu')">CPU</button>
           <button class="fg-mode-btn"        id="fg-btn-memory" onclick="setFlamegraphMode('memory')">Memory</button>
-          <button class="fg-mode-btn"        id="fg-btn-diff"   onclick="setFlamegraphMode('diff')">Diff</button>
+          <button class="fg-mode-btn"        id="fg-btn-diff"   onclick="setFlamegraphMode('diff')" title="Diff view is only available from the self-decode source">Diff</button>
+        </div>
+        <div class="fg-mode-tabs" style="margin-left:8px" title="Choose where CPU/Memory flamegraph data comes from">
+          <button class="fg-mode-btn active" id="ds-btn-self"     onclick="setDataSource('self')">Self-decode</button>
+          <button class="fg-mode-btn"        id="ds-btn-internal" onclick="setDataSource('internal')">Internal API</button>
         </div>
       </div>
       <div class="card-body">
@@ -923,6 +927,7 @@ let state = {
   memoryFrames: {},     // service → [frames]
   flameDiff: {},        // service → [{function, file, before_pct, after_pct, delta_pct}]
   flamegraphMode: 'cpu', // 'cpu' | 'memory' | 'diff'
+  dataSource: 'self',   // 'self' (self-decoded OTLP) | 'internal' (real profiling-backend api service)
 };
 
 // Frame metadata for the fix generator, keyed by source-panel id.
@@ -954,18 +959,41 @@ async function fetchExceptionDetail(service, traceId) {
   return r.json();
 }
 
+function internalTimeParams() {
+  const { since, until } = getTimeWindow();
+  const p = new URLSearchParams();
+  if (since) p.set('since', since.toFixed(0));
+  if (until) p.set('until', until.toFixed(0));
+  if (state.environment) p.set('environment', state.environment);
+  const s = p.toString();
+  return s ? '?' + s : '';
+}
+
 async function fetchFlamegraph(service) {
-  const r = await fetch(`/api/profiling/flamegraph/${encodeURIComponent(service)}${getTimeParams()}`);
+  const url = state.dataSource === 'internal'
+    ? `/api/profiling/internal/flamegraph/${encodeURIComponent(service)}${internalTimeParams()}`
+    : `/api/profiling/flamegraph/${encodeURIComponent(service)}${getTimeParams()}`;
+  const r = await fetch(url);
   return r.json();
 }
 
 async function fetchMemory(service) {
-  const r = await fetch(`/api/profiling/memory/${encodeURIComponent(service)}${getTimeParams()}`);
+  const url = state.dataSource === 'internal'
+    ? `/api/profiling/internal/memory/${encodeURIComponent(service)}${internalTimeParams()}`
+    : `/api/profiling/memory/${encodeURIComponent(service)}${getTimeParams()}`;
+  const r = await fetch(url);
   return r.json();
 }
 
 async function fetchDiff(service) {
   const r = await fetch(`/api/profiling/diff/${encodeURIComponent(service)}`);
+  return r.json();
+}
+
+async function fetchInternalServices() {
+  const p = new URLSearchParams();
+  if (state.environment) p.set('environment', state.environment);
+  const r = await fetch(`/api/profiling/internal/services${p.toString() ? '?' + p.toString() : ''}`);
   return r.json();
 }
 
@@ -2168,7 +2196,17 @@ async function refresh() {
 
     const svcs = status.profiling_services || [];
     const excSvcs = status.exception_services || [];
-    const allSvcs = [...new Set([...svcs, ...excSvcs])].sort();
+    let allSvcs = [...new Set([...svcs, ...excSvcs])].sort();
+
+    // The internal-API source may have a completely different service universe
+    // than the self-decoded OTLP path — swap the tab list to match the toggle.
+    if (state.dataSource === 'internal') {
+      try {
+        const intData = await fetchInternalServices();
+        allSvcs = (intData.services || []).sort();
+      } catch (_) { allSvcs = []; }
+    }
+
     state.services = allSvcs;
     state.profilingActive = new Set(svcs);
     if (!state.activeService || !allSvcs.includes(state.activeService)) {
@@ -2345,6 +2383,33 @@ function esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+// ── Data source toggle (self-decoded OTLP vs. real internal profiling API) ──
+//
+// Only CPU/Memory flamegraph data has a matching shape from both sources
+// (see streaming/internal_api_client.py). Diff and Method Hotspots/Snapshot
+// Explorer stay on the self-decode source regardless of this toggle — the
+// internal API's call-graph endpoint doesn't yet expose caller/callee pairs,
+// so it can't drive those views (see memory/profiling.md for the gap).
+
+async function setDataSource(source) {
+  if (state.dataSource === source) return;
+  state.dataSource = source;
+  document.getElementById('ds-btn-self').classList.toggle('active', source === 'self');
+  document.getElementById('ds-btn-internal').classList.toggle('active', source === 'internal');
+  document.getElementById('icicle-subtitle').textContent = source === 'internal'
+    ? 'Grouped by package category · via internal profiling API'
+    : 'Grouped by package category';
+
+  if (source === 'internal' && state.flamegraphMode === 'diff') {
+    setFlamegraphMode('cpu');
+  }
+
+  // The service universe differs between sources — force refresh() to re-pick
+  // an active service from whichever list matches the new source.
+  state.activeService = null;
+  await refresh();
 }
 
 // ── Flamegraph mode switching (CPU / Memory / Diff) ─────────────────────────

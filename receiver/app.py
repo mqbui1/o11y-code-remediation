@@ -28,6 +28,7 @@ from streaming import pipeline
 from streaming import profiling_store as ps
 from streaming import snapshot_store as ss
 from streaming import exception_store as es
+from streaming import internal_api_client as iac
 from receiver.fix_generator import generate_fix
 from receiver.narrative_generator import generate_narrative
 from receiver.source_reader import read_source
@@ -225,6 +226,56 @@ def create_app(environment: str = "") -> Flask:
             has_snapshot = ss.has_data(service, trace_id)
             return Response(
                 json.dumps({"service": service, "trace_id": trace_id, "records": records, "has_snapshot": has_snapshot}),
+                status=200, mimetype="application/json",
+            )
+        except Exception as exc:
+            return Response(json.dumps({"error": str(exc)}), status=500, mimetype="application/json")
+
+    # ── Internal-API-backed profiling (prototype, additive) ─────────────────
+    #
+    # Same shapes as the /api/profiling/* routes above, but sourced from the
+    # real Splunk internal profiling `api` service instead of self-decoded
+    # OTLP/pprof. Side-by-side comparison only — does not replace the
+    # existing routes. See streaming/internal_api_client.py docstring for
+    # the file/line precision tradeoff between /v2/table and /v2/call-graphs.
+
+    @app.get("/api/profiling/internal/services")
+    def internal_services():
+        try:
+            env = environment or request.args.get("environment", "")
+            services = iac.get_services(env) if env else []
+            return Response(json.dumps({"environment": env, "services": services}), status=200, mimetype="application/json")
+        except Exception as exc:
+            return Response(json.dumps({"error": str(exc)}), status=500, mimetype="application/json")
+
+    @app.get("/api/profiling/internal/flamegraph/<service>")
+    def internal_flamegraph(service):
+        try:
+            env = environment or request.args.get("environment", "")
+            since = float(request.args.get("since", 0) or 0)
+            until = float(request.args.get("until", 0) or 0)
+            frames = iac.get_flamegraph(service, env, since=since, until=until)
+            return Response(json.dumps({"service": service, "environment": env, "frames": frames}), status=200, mimetype="application/json")
+        except Exception as exc:
+            return Response(json.dumps({"error": str(exc)}), status=500, mimetype="application/json")
+
+    @app.get("/api/profiling/internal/memory/<service>")
+    def internal_memory_flamegraph(service):
+        try:
+            env = environment or request.args.get("environment", "")
+            since = float(request.args.get("since", 0) or 0)
+            until = float(request.args.get("until", 0) or 0)
+            frames = iac.get_memory_flamegraph(service, env, since=since, until=until)
+            return Response(json.dumps({"frames": frames}), status=200, mimetype="application/json")
+        except Exception as exc:
+            return Response(json.dumps({"error": str(exc)}), status=500, mimetype="application/json")
+
+    @app.get("/api/profiling/internal/callgraph/<service>/<trace_id>")
+    def internal_callgraph_lookup(service, trace_id):
+        try:
+            methods = iac.get_slowest_methods(service, trace_id, limit=10)
+            return Response(
+                json.dumps({"service": service, "trace_id": trace_id, "slowest_methods": methods, "found": bool(methods)}),
                 status=200, mimetype="application/json",
             )
         except Exception as exc:

@@ -3,7 +3,7 @@ services:
     build: .
     container_name: o11y-code-remediation
     ports:
-      - "4318:4318"
+      - "4319:4318"
     environment:
       - PORT=4318
       - HOST=0.0.0.0
@@ -17,6 +17,12 @@ services:
       - OPENAI_BASE_URL=${OPENAI_BASE_URL:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-ollama}
       - OPENAI_MODEL=${OPENAI_MODEL:-}
+      # Prototype: real Splunk internal profiling `api` service (see
+      # streaming/internal_api_client.py). Requires this container to be on
+      # the same docker network as that service (e.g.
+      # `docker network connect dev_profiling_default o11y-code-remediation`).
+      - INTERNAL_API_BASE_URL=${INTERNAL_API_BASE_URL:-http://api:8080}
+      - INTERNAL_API_ORG_ID=${INTERNAL_API_ORG_ID:-}
     volumes:
       # Needed by receiver/source_reader.py to read source files from other
       # running containers for the /api/source and /api/fix endpoints.

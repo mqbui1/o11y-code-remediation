@@ -13,6 +13,24 @@ repo is to make it independently deployable and to eventually contribute it
 into Splunk Observability Cloud itself, layered on top of the existing real
 AlwaysOn Profiler + call-graph data path (see "Background" below).
 
+## Screenshots
+
+**Profiling dashboard** — flamegraph, top CPU functions, and method hotspots for each profiled service:
+
+![Profiling dashboard overview](docs/screenshots/dashboard-overview.png)
+
+**AI-generated fix** — flags a synchronous gRPC call on the hot path and proposes a caching fix:
+
+![AI fix suggestion for a blocking flag check](docs/screenshots/ai-fix-flag-check.png)
+
+**Unified diff output** — the exact code change generated for the fix above:
+
+![AI-generated unified diff](docs/screenshots/ai-fix-diff.png)
+
+**Waterfall call detection** — flags serial `await` calls that could be parallelized or batched:
+
+![Waterfall call pattern detection](docs/screenshots/waterfall-calls-detection.png)
+
 ## What it does
 
 - Accepts OTLP/HTTP JSON exports for **traces** (exception events) and
